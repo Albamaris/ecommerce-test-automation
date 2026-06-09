@@ -1,0 +1,39 @@
+{
+  "name": "ecommerce-test-automation",
+  "version": "1.0.0",
+  "description": "End-to-end test automation for a WooCommerce-based e-commerce demo shop using Playwright, TypeScript, and Jenkins CI/CD.",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:allure": "cross-env GENERATE_ALLURE=true playwright test",
+    "test:headed": "playwright test --headed",
+    "test:headed:allure": "cross-env GENERATE_ALLURE=true playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "test:codegen": "playwright codegen",
+    "test:ecommerce": "playwright test ecommerce --project=chromium --headed",
+    "test:ecommerce:allure": "cross-env GENERATE_ALLURE=true playwright test ecommerce --project=chromium --headed",
+    "test:chrome": "playwright test --project=chromium --headed",
+    "test:chrome:allure": "cross-env GENERATE_ALLURE=true playwright test --project=chromium --headed",
+    "jenkins:setup": "docker compose up -d",
+    "jenkins:stop": "docker compose down",
+    "jenkins:logs": "docker compose logs -f jenkins"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "e2e",
+    "automation"
+  ],
+  "author": "Ozren",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "allure-commandline": "^2.36.0",
+    "allure-playwright": "^3.4.3",
+    "cross-env": "^10.1.0",
+    "typescript": "^5.3.0"
+  }
+}

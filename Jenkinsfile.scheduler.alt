@@ -1,0 +1,246 @@
+/**
+ * Alternative Jenkinsfile mit automatischem Trigger
+ *
+ * UNTERSCHIED zum Haupt-Jenkinsfile:
+ * - Prüft automatisch alle 5 Minuten ob neue Git-Commits vorhanden sind
+ * - Startet Build automatisch bei erkannten Änderungen
+ * - Nützlich für Continuous Integration Workflow
+ *
+ * VERWENDUNG:
+ * 1. In Jenkins Job-Konfiguration: Pipeline script from SCM
+ * 2. Script Path: Jenkinsfile.scheduler.alt (statt Jenkinsfile)
+ */
+
+pipeline {
+    agent {
+        docker {
+            image 'mcr.microsoft.com/playwright:v1.40.0-jammy'
+            args '-u root:root'
+        }
+    }
+
+    parameters {
+        booleanParam(
+            name: 'RUN_CHROMIUM',
+            defaultValue: true,
+            description: 'Run tests on Chromium browser'
+        )
+        booleanParam(
+            name: 'RUN_FIREFOX',
+            defaultValue: false,
+            description: 'Run tests on Firefox browser'
+        )
+        booleanParam(
+            name: 'RUN_WEBKIT',
+            defaultValue: false,
+            description: 'Run tests on WebKit browser'
+        )
+        string(
+            name: 'WORKERS',
+            defaultValue: '4',
+            description: 'Number of parallel workers (1-10)'
+        )
+        booleanParam(
+            name: 'GENERATE_ALLURE_REPORT',
+            defaultValue: false,
+            description: 'Generate Allure report after test execution'
+        )
+        string(
+            name: 'BRANCH_NAME',
+            defaultValue: 'developing',
+            description: 'Git branch to test (e.g., developing, main, feature/xyz)'
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // AUTOMATISCHER TRIGGER - Hauptunterschied zum Standard-Jenkinsfile
+    // ═══════════════════════════════════════════════════════════════
+    triggers {
+        // Prüft alle 5 Minuten ob neue Commits im Git vorhanden sind
+        // Startet Build NUR wenn Änderungen erkannt werden
+        // H/5 = Alle 5 Minuten (H für zufällige Minute zur Load-Verteilung)
+        pollSCM('H/5 * * * *')
+
+        // ALTERNATIVE OPTIONEN (auskommentiert):
+        // pollSCM('H/2 * * * *')   // Alle 2 Minuten (häufiger)
+        // pollSCM('H/10 * * * *')  // Alle 10 Minuten (seltener)
+        // pollSCM('H/15 * * * *')  // Alle 15 Minuten
+
+        // ZUSÄTZLICH: Nightly Build (jeden Tag um 2 Uhr)
+        // cron('H 2 * * *')
+    }
+
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+        buildDiscarder(logRotator(
+            numToKeepStr: '10',       // Letzte 10 Builds behalten
+            daysToKeepStr: '7'        // Oder Builds älter als 7 Tage löschen
+        ))
+    }
+
+    environment {
+        CI = 'true'
+        HOME = "${WORKSPACE}"
+        npm_config_cache = "${WORKSPACE}/.npm"
+        PLAYWRIGHT_WORKERS = "${params.WORKERS}"
+        GENERATE_ALLURE = "${params.GENERATE_ALLURE_REPORT}"
+    }
+
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Set build display name to show branch being tested
+                    currentBuild.displayName = "#${BUILD_NUMBER} - ${params.BRANCH_NAME}"
+                    echo "Testing branch: ${params.BRANCH_NAME}"
+                    echo "Triggered by: ${currentBuild.getBuildCauses()}"
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                script {
+                    echo "Checking out branch: ${params.BRANCH_NAME}"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${params.BRANCH_NAME}"]],
+                        userRemoteConfigs: scm.userRemoteConfigs
+                    ])
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci'
+                script {
+                    // Install only selected browsers
+                    def browsers = []
+                    if (params.RUN_CHROMIUM) { browsers.add('chromium') }
+                    if (params.RUN_FIREFOX) { browsers.add('firefox') }
+                    if (params.RUN_WEBKIT) { browsers.add('webkit') }
+
+                    if (browsers.size() > 0) {
+                        def browsersArg = browsers.join(' ')
+                        echo "Installing browsers: ${browsers.join(', ')}"
+                        sh "npx playwright install --with-deps ${browsersArg}"
+                    } else {
+                        echo 'No browsers to install'
+                    }
+                }
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                script {
+                    // Build project list based on selected browsers
+                    def projects = []
+                    if (params.RUN_CHROMIUM) { projects.add('chromium') }
+                    if (params.RUN_FIREFOX) { projects.add('firefox') }
+                    if (params.RUN_WEBKIT) { projects.add('webkit') }
+
+                    if (projects.size() > 0) {
+                        // Build command with all selected browsers
+                        def projectsArg = projects.collect { "--project=$it" }.join(' ')
+                        echo "Running tests for browsers: ${projects.join(', ')}"
+                        sh "npx playwright test ${projectsArg} --workers=${params.WORKERS}"
+                    } else {
+                        error 'No browser selected to run tests. Please enable at least one browser.'
+                    }
+                }
+            }
+        }
+
+        stage('Generate Reports') {
+            steps {
+                echo 'Test results will be published in post-build actions'
+            }
+        }
+    }
+
+    post {
+        always {
+            // Publish JUnit test results for trends
+            junit testResults: 'test-results/junit.xml', allowEmptyResults: true
+
+            // Publish HTML Report
+            publishHTML([
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'playwright-report',
+                reportFiles: 'index.html',
+                reportName: 'Playwright Test Report',
+                reportTitles: 'Test Results'
+            ])
+
+            // Publish Allure Report - only if parameter is enabled
+            script {
+                if (params.GENERATE_ALLURE_REPORT && fileExists('allure-results')) {
+                    allure([
+                        includeProperties: false,
+                        jdk: '',
+                        results: [[path: 'allure-results']]
+                    ])
+                } else if (!params.GENERATE_ALLURE_REPORT) {
+                    echo 'Allure report generation skipped (GENERATE_ALLURE_REPORT=false)'
+                }
+            }
+
+            // Archive test results
+            archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
+        }
+
+        success {
+            echo '✅ All tests passed successfully!'
+        }
+
+        failure {
+            echo '❌ Some tests failed!'
+            // Optional: Send notification (Email, Slack, etc.)
+        }
+
+        unstable {
+            echo '⚠️ Tests are unstable'
+        }
+    }
+}
+
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * VERWENDUNGSHINWEISE
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * AUTOMATISCHER WORKFLOW:
+ * 1. Developer pusht Code zu Git
+ * 2. Jenkins prüft alle 5 Minuten ob neue Commits da sind
+ * 3. Bei Änderungen: Build startet automatisch
+ * 4. Tests laufen auf dem konfigurierten Branch (default: developing)
+ * 5. Reports werden generiert und archiviert
+ *
+ * CRON-SYNTAX (pollSCM):
+ * ┌───────────── Minute (0-59)
+ * │ ┌───────────── Stunde (0-23)
+ * │ │ ┌───────────── Tag (1-31)
+ * │ │ │ ┌───────────── Monat (1-12)
+ * │ │ │ │ ┌───────────── Wochentag (0-7)
+ * │ │ │ │ │
+ * * * * * *
+ *
+ * BEISPIELE:
+ * H/5 * * * *      // Alle 5 Minuten
+ * H/15 * * * *     // Alle 15 Minuten
+ * H H(0-7) * * *   // Einmal pro Tag zwischen 0-7 Uhr
+ * H 2 * * *        // Jeden Tag um ~2 Uhr
+ *
+ * WICHTIG:
+ * - "H" steht für "Hash" - Jenkins verteilt die Last
+ * - H/5 bedeutet: Alle 5 Minuten, aber zufällige Startminute
+ * - Ohne "H" würden alle Jobs zur gleichen Zeit starten (Load!)
+ *
+ * ═══════════════════════════════════════════════════════════════
+ */

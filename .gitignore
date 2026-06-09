@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+yarn.lock
+
+# Test results
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Allure reports (deprecated, using Playwright HTML now)
+allure-results/
+allure-report/
+
+# Logs
+logs/
+
+# Jenkins
+jenkins_home/
+.jenkins/
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code CLI
+.claude/
+
+# Documentation (Markdown wird versioniert)
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,46 @@
+pipeline {
+    agent none
+
+    triggers {
+        // Nightly Build: Jeden Tag um 2:00 Uhr nachts
+        cron('15 6 * * *')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timestamps()
+    }
+
+    stages {
+        stage('Trigger Nightly Tests') {
+            steps {
+                script {
+                    echo '==================================='
+                    echo 'Starting Nightly Test Run'
+                    echo "Time: ${new Date()}"
+                    echo '==================================='
+
+                    build job: 'Playwright E2E Tests',
+                        parameters: [
+                            booleanParam(name: 'RUN_CHROMIUM', value: true),
+                            booleanParam(name: 'RUN_FIREFOX', value: false),
+                            booleanParam(name: 'RUN_WEBKIT', value: false),
+                            string(name: 'WORKERS', value: '4')
+                        ],
+                        wait: false  // Startet den Job und kehrt sofort zurück
+
+                    echo 'Test pipeline triggered successfully!'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Nightly test schedule completed'
+        }
+        failure {
+            echo 'Failed to trigger nightly tests'
+        }
+    }
+}
