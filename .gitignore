@@ -34,9 +34,6 @@ build/
 *.swo
 *~
 
-# Claude Code CLI
-.claude/
-
 # Documentation (Markdown wird versioniert)
 
 # OS
